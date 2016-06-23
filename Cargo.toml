@@ -1,0 +1,9 @@
+[package]
+name = "g910"
+version = "0.1.0"
+authors = ["oberien <jaro.fietz@gmx.de>"]
+
+[dependencies]
+libusb = { git = "https://github.com/oberien/libusb-rs", rev = "42c5d506cb2389b9e55d01ec4df3bb6591a816f0" }
+byteorder = "0.5.3"
+
