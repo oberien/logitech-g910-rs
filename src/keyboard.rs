@@ -1,69 +1,79 @@
 use std::time::Duration;
-use std::collections::HashSet;
-use libusb::{DeviceHandle, Result as UsbResult, Context};
+use std::collections::{HashMap, VecDeque};
 use std::u8;
+use libusb::{DeviceHandle, Result as UsbResult, Context};
+use handle::{Handle, ControlPacket};
 use color::*;
 use keys::*;
-use handle::Handle;
+use parser::*;
+use event::Handler;
 
-pub struct Keyboard<'a> {
-    handle: Handle<'a>,
-    pressed_keys1: HashSet<Key>,
-    pressed_keys2: HashSet<Key>,
+pub trait Keyboard {
+    fn send_color(&mut self, color_packet: ColorPacket) -> UsbResult<()>;
+    fn flush_color(&mut self) -> UsbResult<()>;
+    fn set_color(&mut self, color_packet: ColorPacket) -> UsbResult<()>;
+    fn set_all_colors(&mut self, color: Color) -> UsbResult<()>;
 }
 
-impl<'a> Keyboard<'a> {
-    pub fn new(context: &'a Context, handle: &'a DeviceHandle<'a>) -> UsbResult<Keyboard<'a>> {
-        Ok(Keyboard {
-            handle: try!(Handle::new(context, handle)),
-            pressed_keys1: HashSet::new(),
-            pressed_keys2: HashSet::new(),
-        })
+pub struct KeyboardInternal<'a> {
+    handle: Handle<'a>,
+    control_packet_queue: VecDeque<ControlPacket>,
+    sending_control: bool,
+}
+
+impl<'a> KeyboardInternal<'a> {
+    pub fn new(handle: Handle<'a>) -> KeyboardInternal<'a> {
+        KeyboardInternal {
+            handle: handle,
+            control_packet_queue: VecDeque::new(),
+            sending_control: false,
+        }
     }
 
-    pub fn send_color(&mut self, color_packet: ColorPacket) -> UsbResult<()> {
-        //try!(self.handle.listen_iface2(Duration::from_secs(1)));
+    pub fn queue_control_packet(&mut self, packet: ControlPacket) -> UsbResult<()> {
+        self.control_packet_queue.push_back(packet);
+        if !self.sending_control {
+            self.send_next_control()
+        } else {
+            Ok(())
+        }
+    }
 
+    pub fn send_next_control(&mut self) -> UsbResult<()> {
+        if self.control_packet_queue.len() == 0 {
+            self.sending_control = false;
+            return Ok(());
+        }
+        if !self.sending_control {
+            self.sending_control = true;
+        }
+        self.handle.send_control(self.control_packet_queue.pop_front().unwrap())
+    }
+}
+
+impl<'a> Keyboard for KeyboardInternal<'a> {
+    fn send_color(&mut self, color_packet: ColorPacket) -> UsbResult<()> {
         let packet: [u8; 64] = color_packet.into();
         let mut to_send = Vec::new();
         to_send.extend_from_slice(&packet);
-        try!(self.handle.send_control(0x80, to_send, 0x21, 9, 0x0212, 0x0001, Duration::from_secs(10)));
-        match self.handle.recv() {
-            Ok(buf) => println!("OK: {:?}", &buf),
-            Err(e) => println!("Err: {}", e)
-        }
-        match self.handle.recv() {
-            Ok(buf) => println!("OK: {:?}", &buf),
-            Err(e) => println!("Err: {}", e)
-        }
-        Ok(())
+        self.queue_control_packet(ControlPacket::new(0x80, to_send, 0x21, 9, 0x0212,
+                                             0x0001, Duration::from_secs(10)))
     }
 
-    pub fn flush_color(&mut self) -> UsbResult<()> {
-        //try!(self.handle.listen_iface2(Duration::from_secs(1)));
-
+    fn flush_color(&mut self) -> UsbResult<()> {
         let flush: [u8; 20] = FlushPacket::new().into();
         let mut to_send = Vec::new();
         to_send.extend_from_slice(&flush);
-        try!(self.handle.send_control(0x80, to_send, 0x21, 9, 0x0212, 0x0001, Duration::from_secs(10)));
-        match self.handle.recv() {
-            Ok(buf) => println!("OK: {:?}", &buf),
-            Err(e) => println!("Err: {}", e)
-        }
-        match self.handle.recv() {
-            Ok(buf) => println!("OK: {:?}", &buf),
-            Err(e) => println!("Err: {}", e)
-        }
-        Ok(())
+        self.queue_control_packet(ControlPacket::new(0x80, to_send, 0x21, 9, 0x0212,
+                                             0x0001, Duration::from_secs(10)))
     }
 
-    pub fn set_color(&mut self, color_packet: ColorPacket) -> UsbResult<()> {
+    fn set_color(&mut self, color_packet: ColorPacket) -> UsbResult<()> {
         try!(self.send_color(color_packet));
-        try!(self.flush_color());
-        Ok(())
+        self.flush_color()
     }
 
-    pub fn set_all_colors(&mut self, color: Color) -> UsbResult<()> {
+    fn set_all_colors(&mut self, color: Color) -> UsbResult<()> {
         for chunk in (&StandardKey::values()[..]).chunks(14) {
             let mut packet = ColorPacket::new();
             for code in chunk {
@@ -87,52 +97,112 @@ impl<'a> Keyboard<'a> {
         }
         self.flush_color()
     }
+}
 
-    pub fn parse_buf(&mut self, buf: &[u8]) -> Result<KeyEvent, ()> {
-        // iface1, normal key || iface2, rollover
-        if buf[0] != 0x00 && buf[0] != 0x01 {
-            return Err(());
-        }
-        let mut state = HashSet::new();
-        for k in &buf[1..] {
-            match StandardKey::from(*k) {
-                StandardKey::None => {},
-                s => { state.insert(s.into()); }
-            }
-        }
+pub struct KeyboardImpl<'a> {
+    keyboard_internal: KeyboardInternal<'a>,
+    parser_index: u32,
+    parsers: HashMap<u32, Parser>,
+    handler_index: u32,
+    handlers: HashMap<u32, Handler>,
+}
 
-        let mut added: Vec<_>;
-        let mut removed: Vec<_>;
-        if buf[0] == 0x00 {
-            added = state.difference(&self.pressed_keys1).cloned().collect();
-            removed = self.pressed_keys1.difference(&state).cloned().collect();
-            self.pressed_keys1 = state;
-        } else {
-            added = state.difference(&self.pressed_keys2).cloned().collect();
-            removed = self.pressed_keys2.difference(&state).cloned().collect();
-            self.pressed_keys2 = state;
-        }
-        assert!(1 == added.len() + removed.len());
-
-        if added.len() == 1 {
-            Ok(KeyEvent::KeyPressed(added.pop().unwrap()))
-        } else {
-            Ok(KeyEvent::KeyReleased(removed.pop().unwrap()))
-        }
+impl<'a> KeyboardImpl<'a> {
+    pub fn new(context: &'a Context, handle: &'a DeviceHandle<'a>) -> UsbResult<KeyboardImpl<'a>> {
+        let mut keyboard = KeyboardImpl {
+            keyboard_internal: KeyboardInternal::new(try!(Handle::new(context, handle))),
+            parser_index: 0,
+            parsers: HashMap::new(),
+            handler_index: 0,
+            handlers: HashMap::new(),
+        };
+        keyboard.add_parser(KeyParser::new().into());
+        keyboard.add_parser(ControlParser::new().into());
+        Ok(keyboard)
     }
 
-    pub fn handle<F>(&mut self, mut f: F) -> UsbResult<()>
-            where F: FnMut(KeyEvent, &mut Keyboard) -> bool {
-        loop {
-            let buf = try!(self.handle.recv());
-            println!("buf: {:?}", buf);
-            // TODO: fix unwrap as race conditions between setting colors and reading keys could
-            // happen
-            if !f(self.parse_buf(&buf).unwrap(), self) {
-                break;
+    pub fn add_handler(&mut self, handler: Handler) -> u32 {
+        let index = self.handler_index;
+        self.handlers.insert(index, handler);
+        self.handler_index += 1;
+        index
+    }
+
+    pub fn remove_handler(&mut self, index: u32) -> Option<Handler> {
+        self.handlers.remove(&index)
+    }
+
+    fn add_parser(&mut self, parser: Parser) -> u32 {
+        let index = self.parser_index;
+        self.parsers.insert(index, parser);
+        self.parser_index += 1;
+        index
+    }
+
+    // FIXME: Currently unused, but maybe needed later
+    //fn remove_parser(&mut self, index: u32) -> Option<Parser> {
+        //self.parsers.remove(&index)
+    //}
+
+    fn handle(&mut self) -> UsbResult<()> {
+        let (endpoint_direction, buf) = try!(self.keyboard_internal.handle.recv());
+        let packet = Packet::new(endpoint_direction, &buf);
+        let mut handled = false;
+        let &mut KeyboardImpl {
+            ref mut keyboard_internal,
+            parser_index: _,
+            ref mut parsers,
+            handler_index: _,
+            ref mut handlers,
+        } = self;
+        for (_, parser) in parsers.iter_mut() {
+            match parser {
+                &mut Parser::ParseKey(ref mut p) if p.accept(&packet) => {
+                    let key_events = try!(p.parse(&packet, keyboard_internal));
+                    for key_event in key_events {
+                        for (_, handler) in handlers.iter_mut() {
+                            match handler {
+                                &mut Handler::HandleKey(ref mut h) if h.accept(&key_event) => {
+                                    handled = true;
+                                    try!(h.handle(&key_event, keyboard_internal));
+                                },
+                                _ => {}
+                            }
+                        }
+                    }
+                },
+                &mut Parser::ParseControl(ref mut p) if p.accept(&packet) => {
+                    handled = true;
+                    try!(p.parse(&packet, keyboard_internal));
+                },
+                _ => {}
             }
         }
+        if !handled {
+            println!("Packet not handled: {:?}", packet);
+        }
         Ok(())
+    }
+
+    pub fn start_handle_loop(&mut self) -> UsbResult<()> {
+        loop {
+            try!(self.handle());
+        }
+    }
+}
+
+impl<'a> Keyboard for KeyboardImpl<'a> {
+    fn send_color(&mut self, color_packet: ColorPacket) -> UsbResult<()> {
+        self.keyboard_internal.send_color(color_packet)
+    }
+    fn flush_color(&mut self) -> UsbResult<()> {
+        self.keyboard_internal.flush_color()
+    }
+    fn set_color(&mut self, color_packet: ColorPacket) -> UsbResult<()> {
+        self.keyboard_internal.set_color(color_packet)
+    }
+    fn set_all_colors(&mut self, color: Color) -> UsbResult<()> {
+        self.keyboard_internal.set_all_colors(color)
     }
 }
 

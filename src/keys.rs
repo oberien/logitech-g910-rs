@@ -52,12 +52,6 @@ macro_rules! arg_enum {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum KeyEvent {
-    KeyPressed(Key),
-    KeyReleased(Key),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Key {
     Standard(StandardKey),
     Gaming(GamingKey),

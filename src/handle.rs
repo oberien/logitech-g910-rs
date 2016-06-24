@@ -7,6 +7,31 @@ pub struct Handle<'a> {
     async_group: AsyncGroup<'a>,
 }
 
+pub struct ControlPacket {
+    endpoint_direction: u8,
+    buf: Vec<u8>,
+    request_type: u8,
+    request: u8,
+    value: u16,
+    index: u16,
+    timeout: Duration,
+}
+
+impl ControlPacket {
+    pub fn new(endpoint_direction: u8, buf: Vec<u8>, request_type: u8, request: u8,
+               value:u16, index: u16, timeout: Duration) -> ControlPacket {
+        ControlPacket {
+            endpoint_direction: endpoint_direction,
+            buf: buf,
+            request_type: request_type,
+            request: request,
+            value: value,
+            index: index,
+            timeout: timeout,
+        }
+    }
+}
+
 impl<'a> Handle<'a> {
     pub fn new(context: &'a Context, handle: &'a DeviceHandle<'a>) -> UsbResult<Handle<'a>> {
         let mut handle = Handle {
@@ -18,17 +43,16 @@ impl<'a> Handle<'a> {
         Ok(handle)
     }
 
-    pub fn send_control(&mut self, endpoint_direction: u8, buf: Vec<u8>, request_type: u8,
-                        request: u8, value:u16, index: u16, timeout: Duration) ->  UsbResult<()> {
+    pub fn send_control(&mut self, packet: ControlPacket) ->  UsbResult<()> {
         self.async_group.submit(Transfer::control(
                 self.handle,
-                endpoint_direction,
-                buf,
-                request_type,
-                request,
-                value,
-                index,
-                timeout
+                packet.endpoint_direction,
+                packet.buf,
+                packet.request_type,
+                packet.request,
+                packet.value,
+                packet.index,
+                packet.timeout
         ))
     }
 
@@ -42,14 +66,15 @@ impl<'a> Handle<'a> {
         ))
     }
 
-    pub fn recv(&mut self) -> UsbResult<Vec<u8>> {
+    pub fn recv(&mut self) -> UsbResult<(u8, Vec<u8>)> {
         let mut transfer = try!(self.async_group.wait_any());
         let buf = transfer.actual().iter().cloned().collect();
+        let endpoint_direction = transfer.endpoint();
         // don't resubmit control packets
-        if transfer.get_endpoint() != 0x80 {
+        if endpoint_direction != 0x80 {
             try!(self.async_group.submit(transfer));
         }
-        Ok(buf)
+        Ok((endpoint_direction, buf))
     }
 
     pub fn listen_iface2(&mut self, timeout: Duration) -> UsbResult<()> {
