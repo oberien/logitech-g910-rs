@@ -3,15 +3,15 @@ use byteorder::{BigEndian, WriteBytesExt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Color {
-    red: u8,
-    green: u8,
-    blue: u8,
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyColor {
-    key: Key,
-    color: Color,
+    pub key: Key,
+    pub color: Color,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
