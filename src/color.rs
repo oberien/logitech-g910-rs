@@ -76,6 +76,11 @@ impl ColorPacket {
         }
     }
 
+    /// Returns the number of Colors in this packet
+    pub fn len(&self) -> usize {
+        self.colors.len()
+    }
+
     /// Wrapper for ColorPacket::into::<[u8; 64]>()
     pub fn to_arr(self) -> [u8; 64] {
         self.into()
