@@ -58,6 +58,19 @@ pub enum Key {
     Logo(Logo),
 }
 
+impl Key {
+    pub fn values() -> Vec<Key> {
+        let mut s = StandardKey::values();
+        let mut g = GamingKey::values();
+        let mut l = Logo::values();
+        let res = s.drain(..).map(|s| s.into())
+            .chain(g.drain(..).map(|g| g.into()))
+            .chain(l.drain(..).map(|l| l.into()))
+            .collect();
+        res
+    }
+}
+
 impl<'a> From<&'a Key> for KeyType {
     fn from(key: &Key) -> KeyType {
         match key {
