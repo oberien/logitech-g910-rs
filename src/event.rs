@@ -90,7 +90,7 @@ impl HandleKey for HeatmapHandler {
             _ => unreachable!()
         };
         self.heatmap.increment(key);
-        keyboard.send_key_colors(self.heatmap.colors())
+        keyboard.set_key_colors(self.heatmap.colors())
     }
 }
 

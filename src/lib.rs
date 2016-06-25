@@ -3,7 +3,7 @@
 extern crate libusb;
 extern crate byteorder;
 
-pub use color::{Color, KeyColor, KeyColorError, ColorPacket, FlushPacket};
+pub use color::{Color, KeyColor};
 pub use keys::{Key, KeyType, StandardKey, GamingKey, Logo};
 pub use utils::{get_context, get_handle};
 pub use keyboard::{Keyboard, KeyboardImpl};

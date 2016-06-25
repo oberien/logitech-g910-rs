@@ -2,14 +2,13 @@ use libusb::{Context, DeviceHandle, AsyncGroup, Transfer, Result as UsbResult};
 
 use std::time::Duration;
 
-pub struct Handle<'a> {
-    handle: &'a DeviceHandle<'a>,
-    async_group: AsyncGroup<'a>,
+pub trait ToControlPacket {
+    fn to_control_packet(self) -> ControlPacket;
 }
 
 pub struct ControlPacket {
-    endpoint_direction: u8,
     buf: Vec<u8>,
+    endpoint_direction: u8,
     request_type: u8,
     request: u8,
     value: u16,
@@ -18,7 +17,7 @@ pub struct ControlPacket {
 }
 
 impl ControlPacket {
-    pub fn new(endpoint_direction: u8, buf: Vec<u8>, request_type: u8, request: u8,
+    pub fn new(buf: Vec<u8>, endpoint_direction: u8, request_type: u8, request: u8,
                value:u16, index: u16, timeout: Duration) -> ControlPacket {
         ControlPacket {
             endpoint_direction: endpoint_direction,
@@ -30,6 +29,11 @@ impl ControlPacket {
             timeout: timeout,
         }
     }
+}
+
+pub struct Handle<'a> {
+    handle: &'a DeviceHandle<'a>,
+    async_group: AsyncGroup<'a>,
 }
 
 impl<'a> Handle<'a> {

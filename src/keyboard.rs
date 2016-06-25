@@ -1,18 +1,14 @@
-use std::time::Duration;
 use std::collections::{HashMap, VecDeque};
-use std::u8;
 use libusb::{DeviceHandle, Result as UsbResult, Context};
-use handle::{Handle, ControlPacket};
+use handle::{Handle, ControlPacket, ToControlPacket};
 use color::*;
 use keys::*;
 use parser::*;
 use event::Handler;
 
 pub trait Keyboard {
-    fn send_key_colors(&mut self, key_colors: Vec<KeyColor>) -> UsbResult<()>;
-    fn send_color(&mut self, color_packet: ColorPacket) -> UsbResult<()>;
-    fn flush_color(&mut self) -> UsbResult<()>;
-    fn set_color(&mut self, color_packet: ColorPacket) -> UsbResult<()>;
+    fn set_key_colors(&mut self, key_colors: Vec<KeyColor>) -> UsbResult<()>;
+    fn set_color(&mut self, key_color: KeyColor) -> UsbResult<()>;
     fn set_all_colors(&mut self, color: Color) -> UsbResult<()>;
 }
 
@@ -50,57 +46,41 @@ impl<'a> KeyboardInternal<'a> {
         }
         self.handle.send_control(self.control_packet_queue.pop_front().unwrap())
     }
+
+    fn send_color<T: KeyType>(&mut self, color_packet: ColorPacket<T>) -> UsbResult<()> {
+        self.queue_control_packet(color_packet.to_control_packet())
+    }
+
+    fn flush_color(&mut self) -> UsbResult<()> {
+        self.queue_control_packet(FlushPacket::new().to_control_packet())
+    }
 }
 
 impl<'a> Keyboard for KeyboardInternal<'a> {
-    fn send_key_colors(&mut self, mut key_colors: Vec<KeyColor>) -> UsbResult<()> {
+    fn set_key_colors(&mut self, key_colors: Vec<KeyColor>) -> UsbResult<()> {
         let mut standard_packet = ColorPacket::new();
         let mut gaming_packet = ColorPacket::new();
         let mut logo_packet = ColorPacket::new();
 
 
-        for key_color in key_colors.drain(..) {
+        for key_color in key_colors {
             match key_color.key {
-                Key::Standard(_) => {
-                    match standard_packet.add_key_color(key_color) {
-                        Ok(()) => {},
-                        Err(KeyColorError::PacketFull(key_color)) => {
-                            try!(self.send_color(standard_packet));
-                            standard_packet = ColorPacket::new();
-                            match standard_packet.add_key_color(key_color) {
-                                Ok(()) => {},
-                                _ => unreachable!()
-                            }
-                        },
-                        Err(KeyColorError::InvalidKeyType) => unreachable!()
+                Key::Standard(s) => {
+                    match standard_packet.add(s, key_color.color) {
+                        Some(p) => try!(self.send_color(p)),
+                        None => {}
                     }
                 },
-                Key::Gaming(_) => {
-                    match gaming_packet.add_key_color(key_color) {
-                        Ok(()) => {},
-                        Err(KeyColorError::PacketFull(key_color)) => {
-                            try!(self.send_color(gaming_packet));
-                            gaming_packet = ColorPacket::new();
-                            match gaming_packet.add_key_color(key_color) {
-                                Ok(()) => {},
-                                _ => unreachable!()
-                            }
-                        },
-                        Err(KeyColorError::InvalidKeyType) => unreachable!()
+                Key::Gaming(g) => {
+                    match gaming_packet.add(g, key_color.color) {
+                        Some(p) => try!(self.send_color(p)),
+                        None => {}
                     }
                 },
-                Key::Logo(_) => {
-                    match logo_packet.add_key_color(key_color) {
-                        Ok(()) => {},
-                        Err(KeyColorError::PacketFull(key_color)) => {
-                            try!(self.send_color(logo_packet));
-                            logo_packet = ColorPacket::new();
-                            match logo_packet.add_key_color(key_color) {
-                                Ok(()) => {},
-                                _ => unreachable!()
-                            }
-                        },
-                        Err(KeyColorError::InvalidKeyType) => unreachable!()
+                Key::Logo(l) => {
+                    match logo_packet.add(l, key_color.color) {
+                        Some(p) => try!(self.send_color(p)),
+                        None => {}
                     }
                 },
             }
@@ -117,50 +97,17 @@ impl<'a> Keyboard for KeyboardInternal<'a> {
         self.flush_color()
     }
 
-    fn send_color(&mut self, color_packet: ColorPacket) -> UsbResult<()> {
-        let packet: [u8; 64] = color_packet.into();
-        let mut to_send = Vec::new();
-        to_send.extend_from_slice(&packet);
-        self.queue_control_packet(ControlPacket::new(0x80, to_send, 0x21, 9, 0x0212,
-                                             0x0001, Duration::from_secs(10)))
-    }
-
-    fn flush_color(&mut self) -> UsbResult<()> {
-        let flush: [u8; 20] = FlushPacket::new().into();
-        let mut to_send = Vec::new();
-        to_send.extend_from_slice(&flush);
-        self.queue_control_packet(ControlPacket::new(0x80, to_send, 0x21, 9, 0x0212,
-                                             0x0001, Duration::from_secs(10)))
-    }
-
-    fn set_color(&mut self, color_packet: ColorPacket) -> UsbResult<()> {
-        try!(self.send_color(color_packet));
-        self.flush_color()
+    fn set_color(&mut self, key_color: KeyColor) -> UsbResult<()> {
+        let key_colors = vec![key_color];
+        self.set_key_colors(key_colors)
     }
 
     fn set_all_colors(&mut self, color: Color) -> UsbResult<()> {
-        for chunk in (&StandardKey::values()[..]).chunks(14) {
-            let mut packet = ColorPacket::new();
-            for code in chunk {
-                packet.add_key_color(KeyColor::new(*code, color)).unwrap();
-            }
-            try!(self.send_color(packet));
-        }
-        for chunk in (&GamingKey::values()[..]).chunks(14) {
-            let mut packet = ColorPacket::new();
-            for code in chunk {
-                packet.add_key_color(KeyColor::new(*code, color)).unwrap();
-            }
-            try!(self.send_color(packet));
-        }
-        for chunk in (&Logo::values()[..]).chunks(14) {
-            let mut packet = ColorPacket::new();
-            for code in chunk {
-                packet.add_key_color(KeyColor::new(*code, color)).unwrap();
-            }
-            try!(self.send_color(packet));
-        }
-        self.flush_color()
+        let mut values = Key::values();
+        let key_colors = values.drain(..)
+            .map(|k| KeyColor::new(k, color.clone()))
+            .collect();
+        self.set_key_colors(key_colors)
     }
 }
 
@@ -260,17 +207,11 @@ impl<'a> KeyboardImpl<'a> {
 }
 
 impl<'a> Keyboard for KeyboardImpl<'a> {
-    fn send_key_colors(&mut self, key_colors: Vec<KeyColor>) -> UsbResult<()> {
-        self.keyboard_internal.send_key_colors(key_colors)
+    fn set_key_colors(&mut self, key_colors: Vec<KeyColor>) -> UsbResult<()> {
+        self.keyboard_internal.set_key_colors(key_colors)
     }
-    fn send_color(&mut self, color_packet: ColorPacket) -> UsbResult<()> {
-        self.keyboard_internal.send_color(color_packet)
-    }
-    fn flush_color(&mut self) -> UsbResult<()> {
-        self.keyboard_internal.flush_color()
-    }
-    fn set_color(&mut self, color_packet: ColorPacket) -> UsbResult<()> {
-        self.keyboard_internal.set_color(color_packet)
+    fn set_color(&mut self, key_color: KeyColor) -> UsbResult<()> {
+        self.keyboard_internal.set_color(key_color)
     }
     fn set_all_colors(&mut self, color: Color) -> UsbResult<()> {
         self.keyboard_internal.set_all_colors(color)

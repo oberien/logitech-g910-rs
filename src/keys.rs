@@ -51,6 +51,11 @@ macro_rules! arg_enum {
     };
 }
 
+pub trait KeyType {
+    fn id() -> u16;
+    fn raw_value(&self) -> u8;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Key {
     Standard(StandardKey),
@@ -71,16 +76,6 @@ impl Key {
     }
 }
 
-impl<'a> From<&'a Key> for KeyType {
-    fn from(key: &Key) -> KeyType {
-        match key {
-            &Key::Standard(_) => KeyType::Standard,
-            &Key::Gaming(_) => KeyType::Gaming,
-            &Key::Logo(_) => KeyType::Logo,
-        }
-    }
-}
-
 impl Into<u8> for Key {
     fn into(self) -> u8 {
         match self {
@@ -89,14 +84,6 @@ impl Into<u8> for Key {
             Key::Logo(m) => m as u8,
         }
     }
-}
-
-#[repr(u16)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum KeyType {
-    Standard = 0x0001,
-    Gaming = 0x0004,
-    Logo = 0x0010,
 }
 
 arg_enum! {
@@ -219,6 +206,16 @@ arg_enum! {
     }
 }
 
+impl KeyType for StandardKey {
+    fn id() -> u16 {
+        0x0001
+    }
+    
+    fn raw_value(&self) -> u8 {
+        *self as u8
+    }
+}
+
 impl From<StandardKey> for Key {
     fn from(standard: StandardKey) -> Key {
         Key::Standard(standard)
@@ -242,6 +239,16 @@ arg_enum! {
     }
 }
 
+impl KeyType for GamingKey {
+    fn id() -> u16 {
+        0x0004
+    }
+    
+    fn raw_value(&self) -> u8 {
+        *self as u8
+    }
+}
+
 impl From<GamingKey> for Key {
     fn from(gaming: GamingKey) -> Key {
         Key::Gaming(gaming)
@@ -255,6 +262,16 @@ arg_enum! {
         None = 0x00,
         G = 0x01,
         G910 = 0x02
+    }
+}
+
+impl KeyType for Logo {
+    fn id() -> u16 {
+        0x0010
+    }
+    
+    fn raw_value(&self) -> u8 {
+        *self as u8
     }
 }
 
