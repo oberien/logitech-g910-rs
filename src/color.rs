@@ -26,7 +26,7 @@ pub struct FlushPacket {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyColorError {
-    PacketFull,
+    PacketFull(KeyColor),
     InvalidKeyType,
 }
 
@@ -69,7 +69,7 @@ impl ColorPacket {
         }
 
         if self.colors.len() >= 14 {
-            Err(KeyColorError::PacketFull)
+            Err(KeyColorError::PacketFull(key_color))
         } else {
             self.colors.push(key_color);
             Ok(())
