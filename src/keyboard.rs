@@ -9,6 +9,7 @@ use parser::*;
 use event::Handler;
 
 pub trait Keyboard {
+    fn send_key_colors(&mut self, key_colors: Vec<KeyColor>) -> UsbResult<()>;
     fn send_color(&mut self, color_packet: ColorPacket) -> UsbResult<()>;
     fn flush_color(&mut self) -> UsbResult<()>;
     fn set_color(&mut self, color_packet: ColorPacket) -> UsbResult<()>;
@@ -52,6 +53,70 @@ impl<'a> KeyboardInternal<'a> {
 }
 
 impl<'a> Keyboard for KeyboardInternal<'a> {
+    fn send_key_colors(&mut self, mut key_colors: Vec<KeyColor>) -> UsbResult<()> {
+        let mut standard_packet = ColorPacket::new();
+        let mut gaming_packet = ColorPacket::new();
+        let mut logo_packet = ColorPacket::new();
+
+
+        for key_color in key_colors.drain(..) {
+            match key_color.key {
+                Key::Standard(_) => {
+                    match standard_packet.add_key_color(key_color) {
+                        Ok(()) => {},
+                        Err(KeyColorError::PacketFull(key_color)) => {
+                            try!(self.send_color(standard_packet));
+                            standard_packet = ColorPacket::new();
+                            match standard_packet.add_key_color(key_color) {
+                                Ok(()) => {},
+                                _ => unreachable!()
+                            }
+                        },
+                        Err(KeyColorError::InvalidKeyType) => unreachable!()
+                    }
+                },
+                Key::Gaming(_) => {
+                    match gaming_packet.add_key_color(key_color) {
+                        Ok(()) => {},
+                        Err(KeyColorError::PacketFull(key_color)) => {
+                            try!(self.send_color(gaming_packet));
+                            gaming_packet = ColorPacket::new();
+                            match gaming_packet.add_key_color(key_color) {
+                                Ok(()) => {},
+                                _ => unreachable!()
+                            }
+                        },
+                        Err(KeyColorError::InvalidKeyType) => unreachable!()
+                    }
+                },
+                Key::Logo(_) => {
+                    match logo_packet.add_key_color(key_color) {
+                        Ok(()) => {},
+                        Err(KeyColorError::PacketFull(key_color)) => {
+                            try!(self.send_color(logo_packet));
+                            logo_packet = ColorPacket::new();
+                            match logo_packet.add_key_color(key_color) {
+                                Ok(()) => {},
+                                _ => unreachable!()
+                            }
+                        },
+                        Err(KeyColorError::InvalidKeyType) => unreachable!()
+                    }
+                },
+            }
+        }
+        if standard_packet.len() > 0 {
+            try!(self.send_color(standard_packet));
+        }
+        if gaming_packet.len() > 0 {
+            try!(self.send_color(gaming_packet));
+        }
+        if logo_packet.len() > 0 {
+            try!(self.send_color(logo_packet));
+        }
+        self.flush_color()
+    }
+
     fn send_color(&mut self, color_packet: ColorPacket) -> UsbResult<()> {
         let packet: [u8; 64] = color_packet.into();
         let mut to_send = Vec::new();
@@ -195,6 +260,9 @@ impl<'a> KeyboardImpl<'a> {
 }
 
 impl<'a> Keyboard for KeyboardImpl<'a> {
+    fn send_key_colors(&mut self, key_colors: Vec<KeyColor>) -> UsbResult<()> {
+        self.keyboard_internal.send_key_colors(key_colors)
+    }
     fn send_color(&mut self, color_packet: ColorPacket) -> UsbResult<()> {
         self.keyboard_internal.send_color(color_packet)
     }
