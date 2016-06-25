@@ -14,6 +14,10 @@ pub enum Handler {
 }
 
 pub trait HandleKey {
+    #[allow(unused_variables)]
+    fn init(&mut self, keyboard: &mut Keyboard) -> UsbResult<()> {
+        Ok(())
+    }
     fn accept(&self, evt: &KeyEvent) -> bool;
     fn handle(&mut self, evt: &KeyEvent, keyboard: &mut Keyboard) -> UsbResult<()>;
 }
@@ -27,6 +31,10 @@ impl FlashHandler {
 }
 
 impl HandleKey for FlashHandler {
+    fn init(&mut self, keyboard: &mut Keyboard) -> UsbResult<()> {
+        keyboard.set_all_colors(Color::new(0, 0, 255))
+    }
+
     #[allow(unused_variables)]
     fn accept(&self, evt: &KeyEvent) -> bool {
         true

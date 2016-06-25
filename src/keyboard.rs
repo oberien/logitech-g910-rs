@@ -121,11 +121,14 @@ impl<'a> KeyboardImpl<'a> {
         Ok(keyboard)
     }
 
-    pub fn add_handler(&mut self, handler: Handler) -> u32 {
+    pub fn add_handler(&mut self, mut handler: Handler) -> UsbResult<u32> {
+        match &mut handler {
+            &mut Handler::HandleKey(ref mut handler) => try!(handler.init(self)),
+        }
         let index = self.handler_index;
         self.handlers.insert(index, handler);
         self.handler_index += 1;
-        index
+        Ok(index)
     }
 
     pub fn remove_handler(&mut self, index: u32) -> Option<Handler> {
