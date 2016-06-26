@@ -60,7 +60,7 @@ impl ParseKey for KeyParser {
     #[allow(unused_variables)]
     fn parse(&mut self, packet: &Packet, keyboard_internal: &mut KeyboardInternal) -> UsbResult<Vec<KeyEvent>> {
         let mut state = HashSet::new();
-        // TODO: add modifier keys
+        // TODO: parse media keys
         for k in &packet.buf[1..] {
             match StandardKey::from(*k) {
                 StandardKey::None => {},
@@ -71,6 +71,44 @@ impl ParseKey for KeyParser {
         let mut added: Vec<_>;
         let mut removed: Vec<_>;
         if packet.endpoint == 1 {
+            // byte 0 has modifier keys as bytemap:
+            // 0b0 0 0 0 0 0 0 0
+            //   R R R R L L L L
+            //   W A S C W A S C
+            //   I L H T I L H T
+            //   N T I R N T I R
+            //     G F L     F L
+            //     R T       T
+            //   L L L L R R R R
+            //   C S A W C S A W
+            //   T H L I T H L I
+            //   R I T N L I T N
+            //   L F       F G
+            //     T       T R
+            if packet.buf[0] & 0x01 == 0x01 {
+                state.insert(StandardKey::LeftControl.into());
+            }
+            if packet.buf[0] & 0x02 == 0x02 {
+                state.insert(StandardKey::LeftShift.into());
+            }
+            if packet.buf[0] & 0x04 == 0x04 {
+                state.insert(StandardKey::LeftAlt.into());
+            }
+            if packet.buf[0] & 0x08 == 0x08 {
+                state.insert(StandardKey::LeftWindows.into());
+            }
+            if packet.buf[0] & 0x10 == 0x10 {
+                state.insert(StandardKey::RightControl.into());
+            }
+            if packet.buf[0] & 0x20 == 0x20 {
+                state.insert(StandardKey::RightShift.into());
+            }
+            if packet.buf[0] & 0x40 == 0x40 {
+                state.insert(StandardKey::RightAlt.into());
+            }
+            if packet.buf[0] & 0x80 == 0x80 {
+                state.insert(StandardKey::RightWindows.into());
+            }
             added = state.difference(&self.pressed_keys1).cloned().collect();
             removed = self.pressed_keys1.difference(&state).cloned().collect();
             self.pressed_keys1 = state;
@@ -79,10 +117,8 @@ impl ParseKey for KeyParser {
             removed = self.pressed_keys2.difference(&state).cloned().collect();
             self.pressed_keys2 = state;
         }
-        let added_len = added.len();
-        let removed_len = removed.len();
-        let res = added.drain(0..added_len).map(|e| KeyEvent::KeyPressed(e))
-            .chain(removed.drain(0..removed_len).map(|e| KeyEvent::KeyReleased(e)))
+        let res = added.drain(..).map(|e| KeyEvent::KeyPressed(e))
+            .chain(removed.drain(..).map(|e| KeyEvent::KeyReleased(e)))
             .collect();
         Ok(res)
     }
