@@ -7,7 +7,7 @@ pub use color::{Color, KeyColor};
 pub use keys::{Key, KeyType, StandardKey, MediaKey, GamingKey, Logo};
 pub use utils::{get_context, get_handle};
 pub use keyboard::{Keyboard, KeyboardImpl};
-pub use event::{KeyEvent, HandleKey, FlashHandler, HeatmapHandler};
+pub use event::{KeyEvent, HandleKey, Handler};
 
 mod consts;
 mod color;
@@ -17,4 +17,3 @@ mod handle;
 mod keyboard;
 mod parser;
 mod event;
-mod heatmap;
