@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use libusb::{DeviceHandle, Result as UsbResult, Context};
+use libusb::{Context, DeviceHandle, Result as UsbResult, Error as UsbError};
 use handle::{Handle, ControlPacket, ToControlPacket};
 use color::*;
 use keys::*;
@@ -83,6 +83,7 @@ impl<'a> Keyboard for KeyboardInternal<'a> {
                         None => {}
                     }
                 },
+                Key::Media(_) => return Err(UsbError::InvalidParam)
             }
         }
         if standard_packet.len() > 0 {
@@ -105,7 +106,11 @@ impl<'a> Keyboard for KeyboardInternal<'a> {
     fn set_all_colors(&mut self, color: Color) -> UsbResult<()> {
         let mut values = Key::values();
         let key_colors = values.drain(..)
-            .map(|k| KeyColor::new(k, color.clone()))
+            .filter(|k| match k {
+                // we can't set the color of media keys
+                &Key::Media(_) => false,
+                _ => true
+            }).map(|k| KeyColor::new(k, color.clone()))
             .collect();
         self.set_key_colors(key_colors)
     }

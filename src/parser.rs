@@ -51,26 +51,39 @@ impl KeyParser {
 
 impl ParseKey for KeyParser {
     fn accept(&self, packet: &Packet) -> bool {
-        // interface 1 - normal key || interface 2 - rollover
-        packet.buf.len() >= 8
-            && packet.endpoint == 1
-            || (packet.endpoint == 2 && packet.buf[0] == 0x01)
+        // normal key
+        packet.buf.len() == 8 && packet.endpoint == 1 && packet.buf[1] == 0x00
+        // rollover
+        || packet.buf.len() == 64 && packet.endpoint == 2 && packet.buf[0] == 0x01
+        //  media key
+        || packet.buf.len() == 2 && packet.endpoint == 2 && packet.buf[0] == 0x02
     }
 
     #[allow(unused_variables)]
     fn parse(&mut self, packet: &Packet, keyboard_internal: &mut KeyboardInternal) -> UsbResult<Vec<KeyEvent>> {
         let mut state = HashSet::new();
-        // TODO: parse media keys
-        for k in &packet.buf[1..] {
-            match StandardKey::from(*k) {
-                StandardKey::None => {},
-                s => { state.insert(s.into()); }
+
+        // media keys
+        if packet.endpoint == 2 && packet.buf[0] == 0x02 {
+            for key in MediaKey::values() {
+                if packet.buf[1] & key as u8 == key as u8 {
+                    state.insert(key.into());
+                }
             }
         }
 
-        let mut added: Vec<_>;
-        let mut removed: Vec<_>;
-        if packet.endpoint == 1 {
+        // standard keys and rollover
+        if packet.endpoint == 1 || packet.endpoint == 2 && packet.buf[0] == 0x02 {
+            for k in &packet.buf[2..] {
+                match StandardKey::from(*k) {
+                    StandardKey::None => {},
+                    s => { state.insert(s.into()); }
+                }
+            }
+        }
+
+        // modifier keys
+        if packet.endpoint == 1 && packet.buf[0] != 0x00 {
             // byte 0 has modifier keys as bytemap:
             // 0b0 0 0 0 0 0 0 0
             //   R R R R L L L L
@@ -109,6 +122,11 @@ impl ParseKey for KeyParser {
             if packet.buf[0] & 0x80 == 0x80 {
                 state.insert(StandardKey::RightWindows.into());
             }
+        }
+
+        let mut added: Vec<_>;
+        let mut removed: Vec<_>;
+        if packet.endpoint == 1 {
             added = state.difference(&self.pressed_keys1).cloned().collect();
             removed = self.pressed_keys1.difference(&state).cloned().collect();
             self.pressed_keys1 = state;
@@ -156,7 +174,7 @@ impl ParseControl for ControlParser {
             && !(packet.buf[0] == 0x11) {
             println!("Trying to parse unknown packet from iface 2: {:?}", packet);
             Err(UsbError::NotSupported)
-        // wait for the acknoledgement of the control packet before
+        // wait for the acknoledgement of the control packet on iface 2 before
         // sending the next one
         } else if packet.endpoint == 2 {
             keyboard_internal.send_next_control()

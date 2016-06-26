@@ -59,6 +59,7 @@ pub trait KeyType {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Key {
     Standard(StandardKey),
+    Media(MediaKey),
     Gaming(GamingKey),
     Logo(Logo),
 }
@@ -66,9 +67,11 @@ pub enum Key {
 impl Key {
     pub fn values() -> Vec<Key> {
         let mut s = StandardKey::values();
+        let mut m = MediaKey::values();
         let mut g = GamingKey::values();
         let mut l = Logo::values();
         let res = s.drain(..).map(|s| s.into())
+            .chain(m.drain(..).map(|m| m.into()))
             .chain(g.drain(..).map(|g| g.into()))
             .chain(l.drain(..).map(|l| l.into()))
             .collect();
@@ -80,8 +83,9 @@ impl Into<u8> for Key {
     fn into(self) -> u8 {
         match self {
             Key::Standard(s) => s as u8,
+            Key::Media(m) => m as u8,
             Key::Gaming(g) => g as u8,
-            Key::Logo(m) => m as u8,
+            Key::Logo(l) => l as u8,
         }
     }
 }
@@ -219,6 +223,27 @@ impl KeyType for StandardKey {
 impl From<StandardKey> for Key {
     fn from(standard: StandardKey) -> Key {
         Key::Standard(standard)
+    }
+}
+
+arg_enum! {
+    #[repr(u8)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum MediaKey {
+        None = 0x00,
+        Forward = 0x01,
+        Backward = 0x02,
+        Stop = 0x04,
+        PlayPause = 0x08,
+        VolumeUp = 0x10,
+        VolumeDown = 0x20,
+        Mute = 0x40
+    }
+}
+
+impl From<MediaKey> for Key {
+    fn from(media: MediaKey) -> Key {
+        Key::Media(media)
     }
 }
 

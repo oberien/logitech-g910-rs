@@ -19,7 +19,11 @@ impl Heatmap {
     pub fn new() -> Heatmap {
         let mut data = HashMap::new();
         for key in Key::values() {
-            data.insert(key, 0);
+            match key {
+                // we can't set the color of media keys
+                Key::Media(_) => {},
+                k => { data.insert(k, 0); },
+            }
         }
         Heatmap {
             data: data,

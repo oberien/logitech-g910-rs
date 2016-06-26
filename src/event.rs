@@ -79,6 +79,8 @@ impl HandleKey for HeatmapHandler {
     #[allow(unused_variables)]
     fn accept(&self, evt: &KeyEvent) -> bool {
         match evt {
+            // we can't set colors of media keys
+            &KeyEvent::KeyPressed(Key::Media(_)) => false,
             &KeyEvent::KeyPressed(_) => true,
             _ => false
         }
