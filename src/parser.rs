@@ -36,15 +36,17 @@ pub trait ParseControl {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyParser {
-    pressed_keys1: HashSet<Key>,
-    pressed_keys2: HashSet<Key>,
+    pressed_keys: HashSet<Key>,
+    pressed_rollover_keys: HashSet<Key>,
+    pressed_media_keys: HashSet<Key>,
 }
 
 impl KeyParser {
     pub fn new() -> KeyParser {
         KeyParser {
-            pressed_keys1: HashSet::new(),
-            pressed_keys2: HashSet::new(),
+            pressed_keys: HashSet::new(),
+            pressed_rollover_keys: HashSet::new(),
+            pressed_media_keys: HashSet::new(),
         }
     }
 }
@@ -63,8 +65,12 @@ impl ParseKey for KeyParser {
     fn parse(&mut self, packet: &Packet, keyboard_internal: &mut KeyboardInternal) -> UsbResult<Vec<KeyEvent>> {
         let mut state = HashSet::new();
 
+        let media = packet.endpoint == 2 && packet.buf[0] == 0x02;
+        let standard = packet.endpoint == 1;
+        let rollover = packet.endpoint == 2 && packet.buf[0] == 0x01;
+
         // media keys
-        if packet.endpoint == 2 && packet.buf[0] == 0x02 {
+        if media {
             for key in MediaKey::values() {
                 if packet.buf[1] & key as u8 == key as u8 {
                     state.insert(key.into());
@@ -73,7 +79,7 @@ impl ParseKey for KeyParser {
         }
 
         // standard keys and rollover
-        if packet.endpoint == 1 || packet.endpoint == 2 && packet.buf[0] == 0x01 {
+        if standard || rollover {
             for k in &packet.buf[1..] {
                 match StandardKey::from(*k) {
                     StandardKey::None => {},
@@ -83,7 +89,7 @@ impl ParseKey for KeyParser {
         }
 
         // modifier keys
-        if packet.endpoint == 1 && packet.buf[0] != 0x00 {
+        if standard {
             // byte 0 has modifier keys as bytemap:
             // 0b0 0 0 0 0 0 0 0
             //   R R R R L L L L
@@ -118,17 +124,20 @@ impl ParseKey for KeyParser {
             }
         }
 
+        let old_state = if standard {
+            &mut self.pressed_keys
+        } else if rollover {
+            &mut self.pressed_rollover_keys
+        } else if media {
+            &mut self.pressed_media_keys
+        } else {
+            unreachable!()
+        };
         let mut added: Vec<_>;
         let mut removed: Vec<_>;
-        if packet.endpoint == 1 {
-            added = state.difference(&self.pressed_keys1).cloned().collect();
-            removed = self.pressed_keys1.difference(&state).cloned().collect();
-            self.pressed_keys1 = state;
-        } else {
-            added = state.difference(&self.pressed_keys2).cloned().collect();
-            removed = self.pressed_keys2.difference(&state).cloned().collect();
-            self.pressed_keys2 = state;
-        }
+        added = state.difference(old_state).cloned().collect();
+        removed = old_state.difference(&state).cloned().collect();
+        *old_state = state;
         let res = added.drain(..).map(|e| KeyEvent::KeyPressed(e))
             .chain(removed.drain(..).map(|e| KeyEvent::KeyReleased(e)))
             .collect();
