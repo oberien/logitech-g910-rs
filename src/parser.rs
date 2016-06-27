@@ -54,7 +54,7 @@ impl ParseKey for KeyParser {
         // normal key
         packet.buf.len() == 8 && packet.endpoint == 1 && packet.buf[1] == 0x00
         // rollover
-        || packet.buf.len() == 64 && packet.endpoint == 2 && packet.buf[0] == 0x01
+        || packet.buf.len() == 21 && packet.endpoint == 2 && packet.buf[0] == 0x01
         //  media key
         || packet.buf.len() == 2 && packet.endpoint == 2 && packet.buf[0] == 0x02
     }
@@ -73,8 +73,8 @@ impl ParseKey for KeyParser {
         }
 
         // standard keys and rollover
-        if packet.endpoint == 1 || packet.endpoint == 2 && packet.buf[0] == 0x02 {
-            for k in &packet.buf[2..] {
+        if packet.endpoint == 1 || packet.endpoint == 2 && packet.buf[0] == 0x01 {
+            for k in &packet.buf[1..] {
                 match StandardKey::from(*k) {
                     StandardKey::None => {},
                     s => { state.insert(s.into()); }
@@ -92,12 +92,6 @@ impl ParseKey for KeyParser {
             //   N T I R N T I R
             //     G F L     F L
             //     R T       T
-            //   L L L L R R R R
-            //   C S A W C S A W
-            //   T H L I T H L I
-            //   R I T N L I T N
-            //   L F       F G
-            //     T       T R
             if packet.buf[0] & 0x01 == 0x01 {
                 state.insert(StandardKey::LeftControl.into());
             }
@@ -159,7 +153,8 @@ impl ControlParser {
 
 impl ParseControl for ControlParser {
     fn accept(&self, packet: &Packet) -> bool {
-        packet.endpoint == 0 || (packet.endpoint == 2 && packet.buf[0] == 0x11)
+        (packet.buf.len() == 20 || packet.buf.len() == 64) && packet.endpoint == 0
+        || packet.buf.len() == 20 && packet.endpoint == 2 && packet.buf[0] == 0x11
     }
 
     fn parse(&mut self, packet: &Packet, keyboard_internal: &mut KeyboardInternal) -> UsbResult<()> {
