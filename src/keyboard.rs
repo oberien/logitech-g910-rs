@@ -168,6 +168,7 @@ impl<'a> KeyboardImpl<'a> {
         let (endpoint_direction, buf) = try!(self.keyboard_internal.handle.recv());
         let packet = Packet::new(endpoint_direction, &buf);
         let mut handled = false;
+        let mut parsed = false;
         let &mut KeyboardImpl {
             ref mut keyboard_internal,
             parser_index: _,
@@ -178,6 +179,7 @@ impl<'a> KeyboardImpl<'a> {
         for (_, parser) in parsers.iter_mut() {
             match parser {
                 &mut Parser::ParseKey(ref mut p) if p.accept(&packet) => {
+                    parsed = true;
                     let key_events = try!(p.parse(&packet, keyboard_internal));
                     for key_event in key_events {
                         for (_, handler) in handlers.iter_mut() {
@@ -192,13 +194,16 @@ impl<'a> KeyboardImpl<'a> {
                     }
                 },
                 &mut Parser::ParseControl(ref mut p) if p.accept(&packet) => {
+                    parsed = true;
                     handled = true;
                     try!(p.parse(&packet, keyboard_internal));
                 },
                 _ => {}
             }
         }
-        if !handled {
+        if !parsed {
+            println!("Packet not parsed: {:?}", packet);
+        } else if !handled {
             println!("Packet not handled: {:?}", packet);
         }
         Ok(())
