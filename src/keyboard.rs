@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::time::Duration;
 use libusb::{Context, DeviceHandle, Result as UsbResult, Error as UsbError};
 use handle::{Handle, ControlPacket, ToControlPacket};
 use color::*;
@@ -161,10 +162,6 @@ impl<'a> KeyboardImpl<'a> {
     //}
 
     fn handle(&mut self) -> UsbResult<()> {
-        let (endpoint_direction, buf) = try!(self.keyboard_internal.handle.recv());
-        let packet = Packet::new(endpoint_direction, &buf);
-        let mut handled = false;
-        let mut parsed = false;
         let &mut KeyboardImpl {
             ref mut keyboard_internal,
             parser_index: _,
@@ -172,6 +169,35 @@ impl<'a> KeyboardImpl<'a> {
             handler_index: _,
             ref mut handlers,
         } = self;
+
+        let endpoint_direction;
+        let buf;
+        loop {
+            let timeout = match handlers.iter().filter_map(|(_,h)| h.sleep_duration()).min() {
+                Some(d) => d,
+                None => Duration::from_secs(3600*24*365)
+            };
+            let res = keyboard_internal.handle.recv(timeout);
+            match res {
+                Some(Ok((e, b))) => {
+                    endpoint_direction = e;
+                    buf = b;
+                    break
+                },
+                Some(Err(err)) => return Err(err),
+                None => {
+                    for handler in handlers.iter_mut().filter_map(|(_,h)| match h.sleep_duration() {
+                        Some(dur) if dur == Duration::from_secs(0) => Some(h),
+                        _ => None
+                    }) {
+                        try!(handler.handle_time(keyboard_internal));
+                    }
+                }
+            }
+        }
+        let packet = Packet::new(endpoint_direction, &buf);
+        let mut handled = false;
+        let mut parsed = false;
         for (_, parser) in parsers.iter_mut() {
             match parser {
                 &mut Parser::ParseKey(ref mut p) if p.accept(&packet) => {

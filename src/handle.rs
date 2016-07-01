@@ -42,8 +42,8 @@ impl<'a> Handle<'a> {
             handle: handle,
             async_group: AsyncGroup::new(&context),
         };
-        try!(handle.listen_iface1(Duration::from_secs(3600*24)));
-        try!(handle.listen_iface2(Duration::from_secs(3600*24)));
+        try!(handle.listen_iface1(Duration::from_secs(3600*24*365)));
+        try!(handle.listen_iface2(Duration::from_secs(3600*24*365)));
         Ok(handle)
     }
 
@@ -70,25 +70,24 @@ impl<'a> Handle<'a> {
         ))
     }
 
-    pub fn recv(&mut self) -> UsbResult<(u8, Vec<u8>)> {
-        //let mut transfer = try!(self.async_group.wait_any());
-        let mut transfer;
-        loop {
-            match self.async_group.try_wait_any(Duration::from_secs(1)) {
-                Some(res) => {
-                    transfer = try!(res);
-                    break
-                }
-                None => {}
-            };
-        }
+    pub fn recv(&mut self, timeout: Duration) -> Option<UsbResult<(u8, Vec<u8>)>> {
+        let mut transfer = match self.async_group.try_wait_any(timeout) {
+            Some(res) => match res {
+                Ok(transfer) => transfer,
+                Err(err) => return Some(Err(err))
+            },
+            None => return None
+        };
         let buf = transfer.actual().iter().cloned().collect();
         let endpoint_direction = transfer.endpoint();
         // don't resubmit control packets
         if endpoint_direction != 0x80 {
-            try!(self.async_group.submit(transfer));
+            match self.async_group.submit(transfer) {
+                Ok(_) => {},
+                Err(err) => return Some(Err(err))
+            }
         }
-        Ok((endpoint_direction, buf))
+        Some(Ok((endpoint_direction, buf)))
     }
 
     pub fn listen_iface2(&mut self, timeout: Duration) -> UsbResult<()> {
