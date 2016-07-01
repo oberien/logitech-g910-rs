@@ -4,6 +4,6 @@ version = "0.1.0"
 authors = ["oberien <jaro.fietz@gmx.de>"]
 
 [dependencies]
-libusb = { git = "https://github.com/oberien/libusb-rs", rev = "881d54ef4ffa639132ac42d0cdc6fe3a97135a49" }
+libusb = { git = "https://github.com/oberien/libusb-rs", rev = "060be5045140f4625f7450b234af473e877908de" }
 byteorder = "0.5.3"
 

@@ -4,7 +4,7 @@ use handle::{Handle, ControlPacket, ToControlPacket};
 use color::*;
 use keys::*;
 use parser::*;
-use event::Handler;
+use event::{GenericHandler, Handler};
 
 pub trait Keyboard {
     fn set_key_colors(&mut self, key_colors: Vec<KeyColor>) -> UsbResult<()>;
@@ -61,7 +61,6 @@ impl<'a> Keyboard for KeyboardInternal<'a> {
         let mut standard_packet = ColorPacket::new();
         let mut gaming_packet = ColorPacket::new();
         let mut logo_packet = ColorPacket::new();
-
 
         for key_color in key_colors {
             match key_color.key {
@@ -121,7 +120,7 @@ pub struct KeyboardImpl<'a> {
     parser_index: u32,
     parsers: HashMap<u32, Parser>,
     handler_index: u32,
-    handlers: HashMap<u32, Handler>,
+    handlers: HashMap<u32, Box<GenericHandler>>,
 }
 
 impl<'a> KeyboardImpl<'a> {
@@ -138,17 +137,14 @@ impl<'a> KeyboardImpl<'a> {
         Ok(keyboard)
     }
 
-    pub fn add_handler(&mut self, mut handler: Handler) -> UsbResult<u32> {
-        match &mut handler {
-            &mut Handler::HandleKey(ref mut handler) => try!(handler.init(self)),
-        }
+    pub fn add_handler(&mut self, handler: Handler) -> u32 {
         let index = self.handler_index;
-        self.handlers.insert(index, handler);
+        self.handlers.insert(index, handler.into());
         self.handler_index += 1;
-        Ok(index)
+        index
     }
 
-    pub fn remove_handler(&mut self, index: u32) -> Option<Handler> {
+    pub fn remove_handler(&mut self, index: u32) -> Option<Box<GenericHandler>> {
         self.handlers.remove(&index)
     }
 
@@ -183,12 +179,9 @@ impl<'a> KeyboardImpl<'a> {
                     let key_events = try!(p.parse(&packet, keyboard_internal));
                     for key_event in key_events {
                         for (_, handler) in handlers.iter_mut() {
-                            match handler {
-                                &mut Handler::HandleKey(ref mut h) if h.accept(&key_event) => {
-                                    handled = true;
-                                    try!(h.handle(&key_event, keyboard_internal));
-                                },
-                                _ => {}
+                            if handler.accept_key(&key_event) {
+                                handled = true;
+                                try!(handler.handle_key(&key_event, keyboard_internal));
                             }
                         }
                     }
@@ -210,6 +203,19 @@ impl<'a> KeyboardImpl<'a> {
     }
 
     pub fn start_handle_loop(&mut self) -> UsbResult<()> {
+        // init handlers
+        {
+            let &mut KeyboardImpl {
+                ref mut keyboard_internal,
+                parser_index: _,
+                parsers: _,
+                handler_index: _,
+                ref mut handlers,
+            } = self;
+            for (_, handler) in handlers {
+                try!(handler.init(keyboard_internal));
+            }
+        }
         loop {
             try!(self.handle());
         }

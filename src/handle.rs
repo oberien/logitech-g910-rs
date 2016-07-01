@@ -71,7 +71,17 @@ impl<'a> Handle<'a> {
     }
 
     pub fn recv(&mut self) -> UsbResult<(u8, Vec<u8>)> {
-        let mut transfer = try!(self.async_group.wait_any());
+        //let mut transfer = try!(self.async_group.wait_any());
+        let mut transfer;
+        loop {
+            match self.async_group.try_wait_any(Duration::from_secs(1)) {
+                Some(res) => {
+                    transfer = try!(res);
+                    break
+                }
+                None => {}
+            };
+        }
         let buf = transfer.actual().iter().cloned().collect();
         let endpoint_direction = transfer.endpoint();
         // don't resubmit control packets
