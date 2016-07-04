@@ -4,62 +4,98 @@ use libusb::{
     LogLevel,
     Context,
     DeviceHandle,
+    AsyncGroup,
     Result as UsbResult,
     Error,
 };
 
 use consts;
 
-pub struct DeviceHandleWrapper<'a> {
-    handle: DeviceHandle<'a>,
+pub struct UsbWrapper {
+    context: &'static Context,
+    pub handle: &'static DeviceHandle<'static>,
     has_kernel_driver0: bool,
     has_kernel_driver1: bool,
+    pub async_group: &'static mut AsyncGroup<'static>,
 }
 
-impl<'a> Drop for DeviceHandleWrapper<'a> {
+impl UsbWrapper {
+    pub fn new() -> UsbResult<UsbWrapper> {
+        // We must leak both context and handle and async_group, as rust does not allow sibling structs.
+        // Leaking them gives us a &'static reference, which we can then use without
+        // lifetime bounds, as it outlives everything.
+        // We must make sure though, that the leaked memory is freed afterwards,
+        // which is done in Drop.
+        let context = try!(get_context());
+        let context_ptr = Box::into_raw(Box::new(context));
+        let context_ref = unsafe { &*context_ptr as &'static Context };
+        let (handle, driver0, driver1) = try!(get_handle(context_ref));
+        let async_group = AsyncGroup::new(context_ref);
+        let handle_ptr = Box::into_raw(Box::new(handle));
+        let async_ptr = Box::into_raw(Box::new(async_group));
+        unsafe {
+            Ok(UsbWrapper {
+                context: context_ref,
+                handle: &mut *handle_ptr as &'static mut DeviceHandle<'static>,
+                has_kernel_driver0: driver0,
+                has_kernel_driver1: driver1,
+                async_group: &mut *async_ptr as &'static mut AsyncGroup<'static>,
+            })
+        }
+    }
+}
+
+impl Drop for UsbWrapper {
     fn drop(&mut self) {
-        self.handle.release_interface(1).unwrap();
-        self.handle.release_interface(0).unwrap();
-        if self.has_kernel_driver1 {
-            self.handle.attach_kernel_driver(1).unwrap();
+        // make sure handle_mut is dropped before dropping it's refering content
+        // this assures that there will be no dangling pointers
+        {
+            let handle_mut = unsafe { &mut *(self.handle as *const _ as *mut DeviceHandle<'static>) };
+            handle_mut.release_interface(1).unwrap();
+            handle_mut.release_interface(0).unwrap();
+            if self.has_kernel_driver1 {
+                handle_mut.attach_kernel_driver(1).unwrap();
+            }
+            if self.has_kernel_driver0 {
+                handle_mut.attach_kernel_driver(0).unwrap();
+            }
         }
-        if self.has_kernel_driver0 {
-            self.handle.attach_kernel_driver(0).unwrap();
-        }
+        // first, drop async_group to release all captured references to the DeviceHandle
+        let async_ptr = &mut *self.async_group as *mut AsyncGroup<'static>;
+        drop(unsafe { Box::from_raw(async_ptr) });
+        // then, drop the DeviceHandle to release Context
+        let handle_ptr = &*self.handle as *const _ as *mut DeviceHandle<'static>;
+        drop(unsafe { Box::from_raw(handle_ptr) });
+        let context_ptr = self.context as *const _ as *mut Context;
+        drop(unsafe { Box::from_raw(context_ptr) });
     }
 }
 
-impl<'a> Borrow<DeviceHandle<'a>> for DeviceHandleWrapper<'a> {
-    fn borrow(&self) -> &DeviceHandle<'a> {
+impl Borrow<DeviceHandle<'static>> for UsbWrapper {
+    fn borrow(&self) -> &DeviceHandle<'static> {
+        self.handle
+    }
+}
+
+impl Deref for UsbWrapper {
+    type Target = DeviceHandle<'static>;
+    fn deref(&self) -> &DeviceHandle<'static> {
         &self.handle
     }
 }
 
-impl<'a> Deref for DeviceHandleWrapper<'a> {
-    type Target = DeviceHandle<'a>;
-    fn deref(&self) -> &DeviceHandle<'a> {
-        &self.handle
-    }
-}
-
-pub fn get_context() -> Context {
-    let mut context = match Context::new() {
-        Ok(c) => c,
-        Err(e) => panic!("Context::new(): {}", e)
-    };
+fn get_context() -> UsbResult<Context> {
+    let mut context = try!(Context::new());
     context.set_log_level(LogLevel::Debug);
     context.set_log_level(LogLevel::Info);
     context.set_log_level(LogLevel::Warning);
     context.set_log_level(LogLevel::Error);
     context.set_log_level(LogLevel::None);
-    return context;
+    return Ok(context);
 }
 
-pub fn get_handle<'a>(context: &'a Context) -> UsbResult<DeviceHandleWrapper<'a>> {
-    let devices = match context.devices() {
-        Ok(devices) => devices,
-        Err(e) => return Err(e),
-    };
+fn get_handle<'a>(context: &'a Context) -> UsbResult<(DeviceHandle<'a>, bool, bool)> {
+    let devices = try!(context.devices());
     for d in devices.iter() {
         let dd = match d.device_descriptor() {
             Ok(dd) => dd,
@@ -77,11 +113,7 @@ pub fn get_handle<'a>(context: &'a Context) -> UsbResult<DeviceHandleWrapper<'a>
             try!(handle.claim_interface(1));
             // reset keyboard to get clean status
             try!(handle.reset());
-            return Ok(DeviceHandleWrapper {
-                handle: handle,
-                has_kernel_driver0: has_kernel_driver0,
-                has_kernel_driver1: has_kernel_driver1,
-            });
+            return Ok((handle, has_kernel_driver0, has_kernel_driver1));
         }
     }
     return Err(Error::NoDevice);

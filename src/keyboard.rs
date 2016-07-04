@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
-use libusb::{Context, DeviceHandle, Result as UsbResult, Error as UsbError};
+use libusb::{Result as UsbResult, Error as UsbError};
 use handle::{Handle, ControlPacket, ToControlPacket};
 use color::*;
 use keys::*;
@@ -13,19 +13,20 @@ pub trait Keyboard {
     fn set_all_colors(&mut self, color: Color) -> UsbResult<()>;
 }
 
-pub struct KeyboardInternal<'a> {
-    handle: Handle<'a>,
+pub struct KeyboardInternal {
+    handle: Handle,
     control_packet_queue: VecDeque<ControlPacket>,
     sending_control: bool,
 }
 
-impl<'a> KeyboardInternal<'a> {
-    pub fn new(handle: Handle<'a>) -> KeyboardInternal<'a> {
-        KeyboardInternal {
+impl KeyboardInternal {
+    pub fn new() -> UsbResult<KeyboardInternal> {
+        let handle = try!(Handle::new());
+        Ok(KeyboardInternal {
             handle: handle,
             control_packet_queue: VecDeque::new(),
             sending_control: false,
-        }
+        })
     }
 
     pub fn queue_control_packet(&mut self, packet: ControlPacket) -> UsbResult<()> {
@@ -57,7 +58,7 @@ impl<'a> KeyboardInternal<'a> {
     }
 }
 
-impl<'a> Keyboard for KeyboardInternal<'a> {
+impl Keyboard for KeyboardInternal {
     fn set_key_colors(&mut self, key_colors: Vec<KeyColor>) -> UsbResult<()> {
         let mut standard_packet = ColorPacket::new();
         let mut gaming_packet = ColorPacket::new();
@@ -116,18 +117,18 @@ impl<'a> Keyboard for KeyboardInternal<'a> {
     }
 }
 
-pub struct KeyboardImpl<'a> {
-    keyboard_internal: KeyboardInternal<'a>,
+pub struct KeyboardImpl {
+    keyboard_internal: KeyboardInternal,
     parser_index: u32,
     parsers: HashMap<u32, Parser>,
     handler_index: u32,
     handlers: HashMap<u32, Box<GenericHandler>>,
 }
 
-impl<'a> KeyboardImpl<'a> {
-    pub fn new(context: &'a Context, handle: &'a DeviceHandle<'a>) -> UsbResult<KeyboardImpl<'a>> {
+impl KeyboardImpl {
+    pub fn new() -> UsbResult<KeyboardImpl> {
         let mut keyboard = KeyboardImpl {
-            keyboard_internal: KeyboardInternal::new(try!(Handle::new(context, handle))),
+            keyboard_internal: try!(KeyboardInternal::new()),
             parser_index: 0,
             parsers: HashMap::new(),
             handler_index: 0,
@@ -248,7 +249,7 @@ impl<'a> KeyboardImpl<'a> {
     }
 }
 
-impl<'a> Keyboard for KeyboardImpl<'a> {
+impl Keyboard for KeyboardImpl {
     fn set_key_colors(&mut self, key_colors: Vec<KeyColor>) -> UsbResult<()> {
         self.keyboard_internal.set_key_colors(key_colors)
     }
