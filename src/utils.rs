@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-use std::ops::Deref;
 use libusb::{
     LogLevel,
     Context,
@@ -45,19 +43,32 @@ impl UsbWrapper {
     }
 }
 
+macro_rules! unwrap_safe {
+    ($e:expr) => {
+        if ::std::thread::panicking() {
+            match $e {
+                Ok(_) => {},
+                Err(e) => println!("Error while dropping UsbWrapper during another panic: {:?}", e),
+            }
+        } else {
+            $e.unwrap();
+        }
+    }
+}
+
 impl Drop for UsbWrapper {
     fn drop(&mut self) {
         // make sure handle_mut is dropped before dropping it's refering content
         // this assures that there will be no dangling pointers
         {
             let handle_mut = unsafe { &mut *(self.handle as *const _ as *mut DeviceHandle<'static>) };
-            handle_mut.release_interface(1).unwrap();
-            handle_mut.release_interface(0).unwrap();
+            unwrap_safe!(handle_mut.release_interface(1));
+            unwrap_safe!(handle_mut.release_interface(0));
             if self.has_kernel_driver1 {
-                handle_mut.attach_kernel_driver(1).unwrap();
+                unwrap_safe!(handle_mut.attach_kernel_driver(1));
             }
             if self.has_kernel_driver0 {
-                handle_mut.attach_kernel_driver(0).unwrap();
+                unwrap_safe!(handle_mut.attach_kernel_driver(0));
             }
         }
         // first, drop async_group to release all captured references to the DeviceHandle
@@ -71,19 +82,6 @@ impl Drop for UsbWrapper {
     }
 }
 
-impl Borrow<DeviceHandle<'static>> for UsbWrapper {
-    fn borrow(&self) -> &DeviceHandle<'static> {
-        self.handle
-    }
-}
-
-impl Deref for UsbWrapper {
-    type Target = DeviceHandle<'static>;
-    fn deref(&self) -> &DeviceHandle<'static> {
-        &self.handle
-    }
-}
-
 fn get_context() -> UsbResult<Context> {
     let mut context = try!(Context::new());
     context.set_log_level(LogLevel::Debug);
@@ -91,7 +89,7 @@ fn get_context() -> UsbResult<Context> {
     context.set_log_level(LogLevel::Warning);
     context.set_log_level(LogLevel::Error);
     context.set_log_level(LogLevel::None);
-    return Ok(context);
+    Ok(context)
 }
 
 fn get_handle<'a>(context: &'a Context) -> UsbResult<(DeviceHandle<'a>, bool, bool)> {
@@ -116,7 +114,7 @@ fn get_handle<'a>(context: &'a Context) -> UsbResult<(DeviceHandle<'a>, bool, bo
             return Ok((handle, has_kernel_driver0, has_kernel_driver1));
         }
     }
-    return Err(Error::NoDevice);
+    Err(Error::NoDevice)
 }
 
 fn detach(handle: &mut DeviceHandle, iface: u8) -> UsbResult<bool> {
