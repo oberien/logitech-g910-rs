@@ -11,12 +11,19 @@ pub trait Keyboard {
     fn set_key_colors(&mut self, key_colors: Vec<KeyColor>) -> UsbResult<()>;
     fn set_color(&mut self, key_color: KeyColor) -> UsbResult<()>;
     fn set_all_colors(&mut self, color: Color) -> UsbResult<()>;
+    fn set_reconnect_interval(&mut self, interval: Duration);
+    fn set_reconnect_attempts(&mut self, attempts: i32);
+    fn set_auto_reconnect(&mut self, enabled: bool);
+    fn reconnect(&mut self) -> UsbResult<()>;
 }
 
 pub struct KeyboardInternal {
     handle: Handle,
     control_packet_queue: VecDeque<ControlPacket>,
     sending_control: bool,
+    reconnect_interval: Duration,
+    reconnect_attempts: i32,
+    auto_reconnect: bool,
 }
 
 impl KeyboardInternal {
@@ -26,6 +33,9 @@ impl KeyboardInternal {
             handle: handle,
             control_packet_queue: VecDeque::new(),
             sending_control: false,
+            reconnect_interval: Duration::from_secs(1),
+            reconnect_attempts: 10,
+            auto_reconnect: true,
         })
     }
 
@@ -114,6 +124,29 @@ impl Keyboard for KeyboardInternal {
             }).map(|k| KeyColor::new(k, color.clone()))
             .collect();
         self.set_key_colors(key_colors)
+    }
+
+    fn set_reconnect_interval(&mut self, interval: Duration) {
+        self.reconnect_interval = interval;
+    }
+
+    fn set_reconnect_attempts(&mut self, attempts: i32) {
+        self.reconnect_attempts = attempts;
+    }
+    fn set_auto_reconnect(&mut self, enabled: bool) {
+        self.auto_reconnect = enabled;
+    }
+
+    fn reconnect(&mut self) -> UsbResult<()> {
+        let mut last_err = UsbError::NoDevice;
+        for _ in 0..self.reconnect_attempts {
+            match self.handle.reconnect() {
+                Ok(_) => return Ok(()),
+                Err(e) => last_err = e
+            }
+            ::std::thread::sleep(self.reconnect_interval);
+        }
+        Err(last_err)
     }
 }
 
@@ -244,7 +277,11 @@ impl KeyboardImpl {
             }
         }
         loop {
-            try!(self.handle());
+            match self.handle() {
+                Ok(()) => {},
+                Err(UsbError::NoDevice) => try!(self.reconnect()),
+                Err(e) => return Err(e),
+            }
         }
     }
 }
@@ -258,6 +295,18 @@ impl Keyboard for KeyboardImpl {
     }
     fn set_all_colors(&mut self, color: Color) -> UsbResult<()> {
         self.keyboard_internal.set_all_colors(color)
+    }
+    fn set_reconnect_interval(&mut self, interval: Duration) {
+        self.keyboard_internal.set_reconnect_interval(interval)
+    }
+    fn set_reconnect_attempts(&mut self, attempts: i32) {
+        self.keyboard_internal.set_reconnect_attempts(attempts)
+    }
+    fn set_auto_reconnect(&mut self, enabled: bool) {
+        self.keyboard_internal.set_auto_reconnect(enabled)
+    }
+    fn reconnect(&mut self) -> UsbResult<()> {
+        self.keyboard_internal.reconnect()
     }
 }
 

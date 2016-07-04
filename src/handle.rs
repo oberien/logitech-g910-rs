@@ -32,23 +32,32 @@ impl ControlPacket {
 }
 
 pub struct Handle {
-    usb_wrapper: UsbWrapper,
+    usb_wrapper: Option<UsbWrapper>,
 }
 
 impl Handle {
     pub fn new() -> UsbResult<Handle> {
         let usb_wrapper = try!(UsbWrapper::new());
         let mut handle = Handle {
-            usb_wrapper: usb_wrapper,
+            usb_wrapper: Some(usb_wrapper),
         };
         try!(handle.listen_iface1(Duration::from_secs(3600*24*365)));
         try!(handle.listen_iface2(Duration::from_secs(3600*24*365)));
         Ok(handle)
     }
 
+    pub fn reconnect(&mut self) -> UsbResult<()> {
+        // We must drop the old one before creating a new one, because all
+        // handles and locks on that device must be released first.
+        drop(::std::mem::replace(&mut self.usb_wrapper, None));
+        self.usb_wrapper = Some(try!(UsbWrapper::new()));
+        Ok(())
+    }
+
     pub fn send_control(&mut self, packet: ControlPacket) ->  UsbResult<()> {
-        self.usb_wrapper.async_group.submit(Transfer::control(
-                self.usb_wrapper.handle,
+        let wrapper_ref = self.usb_wrapper.as_mut().unwrap();
+        wrapper_ref.async_group.submit(Transfer::control(
+                wrapper_ref.handle,
                 packet.endpoint_direction,
                 packet.buf,
                 packet.request_type,
@@ -61,8 +70,9 @@ impl Handle {
 
     pub fn send_interrupt(&mut self, endpoint_direction: u8, buf: Vec<u8>,
                           timeout: Duration) -> UsbResult<()> {
-        self.usb_wrapper.async_group.submit(Transfer::interrupt(
-                self.usb_wrapper.handle,
+        let wrapper_ref = self.usb_wrapper.as_mut().unwrap();
+        wrapper_ref.async_group.submit(Transfer::interrupt(
+                wrapper_ref.handle,
                 endpoint_direction,
                 buf,
                 timeout
@@ -70,7 +80,7 @@ impl Handle {
     }
 
     pub fn recv(&mut self, timeout: Duration) -> Option<UsbResult<(u8, Vec<u8>)>> {
-        let mut transfer = match self.usb_wrapper.async_group.try_wait_any(timeout) {
+        let mut transfer = match self.usb_wrapper.as_mut().unwrap().async_group.try_wait_any(timeout) {
             Some(res) => match res {
                 Ok(transfer) => transfer,
                 Err(err) => return Some(Err(err))
@@ -81,7 +91,7 @@ impl Handle {
         let endpoint_direction = transfer.endpoint();
         // don't resubmit control packets
         if endpoint_direction != 0x80 {
-            match self.usb_wrapper.async_group.submit(transfer) {
+            match self.usb_wrapper.as_mut().unwrap().async_group.submit(transfer) {
                 Ok(_) => {},
                 Err(err) => return Some(Err(err))
             }

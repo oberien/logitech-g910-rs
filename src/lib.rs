@@ -5,7 +5,6 @@ extern crate byteorder;
 
 pub use color::{Color, KeyColor};
 pub use keys::{Key, KeyType, StandardKey, MediaKey, GamingKey, Logo};
-pub use utils::UsbWrapper;
 pub use keyboard::{Keyboard, KeyboardImpl};
 pub use event::{KeyEvent, HandlerBuilder, Handler};
 
