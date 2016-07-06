@@ -2,6 +2,7 @@
 
 extern crate libusb;
 extern crate byteorder;
+extern crate nix;
 
 pub use color::{Color, KeyColor};
 pub use keys::{Key, KeyType, StandardKey, MediaKey, GamingKey, Logo};

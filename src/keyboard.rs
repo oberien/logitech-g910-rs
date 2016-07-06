@@ -1,6 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 use libusb::{Result as UsbResult, Error as UsbError};
+use nix::sys::signal::{SigAction, sigaction, SaFlags, SigSet, SigHandler, SIGINT, SIGTERM};
+use nix::Result as NixResult;
 use handle::{Handle, ControlPacket, ToControlPacket};
 use color::*;
 use keys::*;
@@ -15,6 +17,8 @@ pub trait Keyboard {
     fn set_reconnect_attempts(&mut self, attempts: i32);
     fn set_auto_reconnect(&mut self, enabled: bool);
     fn reconnect(&mut self) -> UsbResult<()>;
+    unsafe fn enable_signal_handling(&mut self) -> NixResult<()>;
+    fn disable_signal_handling(&mut self) -> NixResult<()>;
 }
 
 pub struct KeyboardInternal {
@@ -155,6 +159,28 @@ impl Keyboard for KeyboardInternal {
         }
         Err(last_err)
     }
+
+    unsafe fn enable_signal_handling(&mut self) -> NixResult<()> {
+        let sig_action = SigAction::new(SigHandler::Handler(panic_on_sig), SaFlags::empty(), SigSet::empty());
+        try!(sigaction(SIGINT, &sig_action).map(|_| ()));
+        sigaction(SIGTERM, &sig_action).map(|_| ())
+    }
+
+    fn disable_signal_handling(&mut self) -> NixResult<()> {
+        let sig_action = SigAction::new(SigHandler::Handler(exit_on_sig), SaFlags::empty(), SigSet::empty());
+        unsafe {
+            try!(sigaction(SIGINT, &sig_action).map(|_| ()));
+            sigaction(SIGTERM, &sig_action).map(|_| ())
+        }
+    }
+}
+
+extern fn panic_on_sig(_: i32) {
+    panic!("Got Sigint: Panicking to drop UsbWrapper to reattach kernel driver");
+}
+
+extern fn exit_on_sig(_: i32) {
+    ::std::process::exit(1);
 }
 
 pub struct KeyboardImpl {
@@ -315,6 +341,12 @@ impl Keyboard for KeyboardImpl {
     }
     fn reconnect(&mut self) -> UsbResult<()> {
         self.keyboard_internal.reconnect()
+    }
+    unsafe fn enable_signal_handling(&mut self) -> NixResult<()> {
+        self.keyboard_internal.enable_signal_handling()
+    }
+    fn disable_signal_handling(&mut self) -> NixResult<()> {
+        self.keyboard_internal.disable_signal_handling()
     }
 }
 
