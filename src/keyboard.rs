@@ -138,11 +138,18 @@ impl Keyboard for KeyboardInternal {
     }
 
     fn reconnect(&mut self) -> UsbResult<()> {
+        println!("Connection lost. Starting reconnect...");
         let mut last_err = UsbError::NoDevice;
         for _ in 0..self.reconnect_attempts {
             match self.handle.reconnect() {
-                Ok(_) => return Ok(()),
-                Err(e) => last_err = e
+                Ok(_) => {
+                    println!("Reconnected");
+                    return Ok(());
+                },
+                Err(e) => {
+                    println!("Reconnecting failed: {:?}", e);
+                    last_err = e;
+                }
             }
             ::std::thread::sleep(self.reconnect_interval);
         }
@@ -280,6 +287,7 @@ impl KeyboardImpl {
             match self.handle() {
                 Ok(()) => {},
                 Err(UsbError::NoDevice) => try!(self.reconnect()),
+                Err(UsbError::Io) => try!(self.reconnect()),
                 Err(e) => return Err(e),
             }
         }
