@@ -2,6 +2,13 @@
 name = "g910"
 version = "0.1.0"
 authors = ["oberien <jaro.fietz@gmx.de>"]
+description = "Logitech G910 Protocol wrapper, allowing for easy interaction with the keyboard"
+#documentation = ""
+homepage = "https://github.com/oberien/logitech-g910-rs"
+repository = "https://github.com/oberien/logitech-g910-rs"
+readme = "README.md"
+keywords = ["logitech", "g910", "keyboard", "usb", "driver"]
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 libusb = { git = "https://github.com/oberien/libusb-rs", rev = "060be5045140f4625f7450b234af473e877908de" }
