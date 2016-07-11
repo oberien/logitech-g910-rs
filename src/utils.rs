@@ -45,13 +45,9 @@ impl UsbWrapper {
 
 macro_rules! unwrap_safe {
     ($e:expr) => {
-        if ::std::thread::panicking() {
-            match $e {
-                Ok(_) => {},
-                Err(e) => println!("Error while dropping UsbWrapper during another panic: {:?}", e),
-            }
-        } else {
-            $e.unwrap();
+        match $e {
+            Ok(_) => {},
+            Err(e) => println!("Error while dropping UsbWrapper during another panic: {:?}", e),
         }
     }
 }
