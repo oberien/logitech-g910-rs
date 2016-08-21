@@ -312,8 +312,7 @@ impl KeyboardImpl {
         loop {
             match self.handle() {
                 Ok(()) => {},
-                Err(UsbError::NoDevice) => try!(self.reconnect()),
-                Err(UsbError::Io) => try!(self.reconnect()),
+                Err(UsbError::NoDevice) | Err(UsbError::Io) | Err(UsbError::Busy) => try!(self.reconnect()),
                 Err(e) => return Err(e),
             }
         }
